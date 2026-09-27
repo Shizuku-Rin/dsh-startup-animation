@@ -39,6 +39,9 @@
 html body:not([data-ds-dark-theme]) {
   --dshs-wall-veil-a: rgba(253, 250, 254, var(--dshs-veil, .8));
   --dshs-wall-veil-b: rgba(250, 247, 253, calc(var(--dshs-veil, .8) * .85));
+  /* 启动页那张背景图也走主题变量（boot.css 的 .dshs-bg 读它）。做成变量而不是拿 JS 取：
+     浏览器只会请求真正生效的那一个 URL —— 暗色用户不会白下浅色那张，反之亦然。 */
+  --dshs-splash-bg: url("/dsh-startup/bg");
   --dsw-alias-bg-base: transparent;
   --dsw-specific-sidebar-fill: rgba(255, 255, 255, var(--dshs-sidebar, .78));
   background:
@@ -49,6 +52,7 @@ html body:not([data-ds-dark-theme]) {
 html body[data-ds-dark-theme] {
   --dshs-wall-veil-a: rgba(21, 21, 23, var(--dshs-veil-dark, .9));
   --dshs-wall-veil-b: rgba(15, 17, 21, calc(var(--dshs-veil-dark, .9) * .92));
+  --dshs-splash-bg: url("/dsh-startup/bgDark");
   --dsw-alias-bg-base: transparent;
   --dsw-specific-sidebar-fill: rgba(27, 27, 28, var(--dshs-sidebar-dark, .82));
   background:

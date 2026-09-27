@@ -163,6 +163,21 @@ assert.equal(activeFestival({ festival: 'auto', birthday: '07-01' }, at('2026-07
 assert.ok(wallCss.includes('--dshs-wall-veil-a') && wallCss.includes('--dshs-wall-veil-b'), '壁纸白纱要定义成变量，供收尾那层复用')
 assert.ok(splashCss.includes('--dshs-wall-veil-a') && splashCss.includes('--dshs-wall-veil-b'), '收尾层要消费同一组白纱变量')
 assert.ok(/\.dshs-bg\s*\{[^}]*inset:\s*0;/.test(splashCss), '启动页背景层不能留富余，否则和主界面壁纸的取景对不上')
+// 启动页背景图跟着主题走：变量在 wallpaper.css 的两条主题规则里各定义一次，boot.css 带 fallback 消费。
+// 一旦有人把 URL 写回 boot.js 的 DOM，暗色用户就会先下浅色那张（或者收尾时跳图）。
+assert.ok(splashCss.includes('var(--dshs-splash-bg'), 'boot.css 的背景层要用 --dshs-splash-bg 取图')
+assert.ok(!/dshs-bg"><img/.test(js), '背景图不该再写死在 boot.js 的 DOM 里')
+assert.equal((wallCss.match(/--dshs-splash-bg:/g) || []).length, 2, '浅色/暗色各要有一条 --dshs-splash-bg')
+assert.ok(/--dshs-splash-bg:\s*url\("\/dsh-startup\/bg"\)/.test(wallCss), '浅色那条要指向 /dsh-startup/bg')
+assert.ok(/--dshs-splash-bg:\s*url\("\/dsh-startup\/bgDark"\)/.test(wallCss), '暗色那条要指向 /dsh-startup/bgDark')
+// 暗色适配只改颜色：作者按浅色场景调过帧率，这块里出现 filter / backdrop-filter 就是走偏了
+const darkSplash = splashCss.slice(splashCss.indexOf('暗色主题'), splashCss.length)
+assert.ok(darkSplash.includes('data-ds-dark-theme'), '暗色块要以 body 上的主题属性为准')
+assert.ok(!/filter\s*:/.test(darkSplash), '暗色块不许引入 filter 声明')
+assert.ok(!/[;{]\s*(?:-webkit-)?backdrop-filter\s*:/.test(darkSplash), '暗色块不许引入 backdrop-filter 声明')
+for (const piece of ['dshs-veil', 'dshs-flash', 'dshs-hello', 'dshs-tip', 'dshs-bar', 'dshs-avatar', 'dshs-shine']) {
+  assert.ok(new RegExp('data-ds-dark-theme\\]\\s*#dshs\\s+\\.' + piece).test(darkSplash), `暗色块要翻 .${piece}（浅色场景的那几件）`)
+}
 // 视差一半在 JS（写变量）一半在 CSS（消费变量），两边都得在
 assert.ok(js.includes('--dshs-px') && js.includes('--dshs-py'), 'boot.js 要把指针位置写进视差变量')
 assert.ok(splashCss.includes('--dshs-px') && splashCss.includes('--dshs-py'), 'boot.css 要消费视差变量')
@@ -526,6 +541,9 @@ rmSync(previewDir, { recursive: true, force: true })
 mkdirSync(previewDir, { recursive: true })
 const relative = (text) => text
   .split(BASE + '/avatar').join('./avatar.jpg')
+  // bgDark 必须排在 bg 前面：前者带 /bg 前缀，先换 bg 会把它切成 ./bg.jpgDark。
+  // 沙箱里深色壁纸没单独设过（= 跟随浅色），所以两张都指向同一个文件。
+  .split(BASE + '/bgDark').join('./bg.jpg')
   .split(BASE + '/bg').join('./bg.jpg')
   .split(BASE + '/boot.js').join('./boot.js')
 writeFileSync(join(previewDir, 'index.html'), relative(previewHtml), 'utf8')

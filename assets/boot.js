@@ -102,8 +102,10 @@
     var pings = ''
     for (var p = 0; p < 2; p++) pings += '<div class="dshs-ping"></div>'
     box.innerHTML =
-      // 背景单独一层，且刻意不留富余：盒子就是视口，取景因此和主界面壁纸逐像素对齐
-      '<div class="dshs-bg"><img src="/dsh-startup/bg" alt=""></div>' +
+      // 背景单独一层，且刻意不留富余：盒子就是视口，取景因此和主界面壁纸逐像素对齐。
+      // 图源不在 JS 里定：boot.css 用 --dshs-splash-bg 读（浅色 / 暗色各一张，见 wallpaper.css），
+      // 这样只请求生效的那一张，也不用担心主题属性挂上之前就把浅色那张写进 DOM。
+      '<div class="dshs-bg"></div>' +
       // 远景装饰：极光色块 + 星尘 + 上浮光点 + 掠过流星 + 斜向光带
       // 节日自己的粒子（飘雪/纸屑）只在这一天挂进 DOM —— 平时连这两个空盒子都不建
       '<div class="dshs-world">' +

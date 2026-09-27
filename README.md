@@ -120,6 +120,7 @@ dsh --profile desktop --dump-config | Select-String startup-animation   # 看到
 | **头像 3D 倾斜幅度** | `.dshs-portrait` 的 `rotateY/rotateX` 里那两个 `6deg/5deg` |
 | **鼠标视差幅度** | `boot.css` 顶部三条 `translate: calc(var(--dshs-px) * Npx)`，改那个 N 就是改纵深 |
 | 侧栏透明度 / 壁纸浓淡（含暗色） | 优先用设置页的「侧栏与壁纸透明度」卡片（写 `config.json` 的 `sidebarOpacity` / `veilOpacity` 与暗色的 `sidebarOpacityDark` / `veilOpacityDark`，宿主首帧前把它们写成 `<html>` 上的 `--dshs-sidebar` / `--dshs-veil` / `--dshs-sidebar-dark` / `--dshs-veil-dark`）。想直接改默认值或兜底：`assets/wallpaper.css` 两条主题规则里 `var(..., fallback)` 的第二参数（浅色 侧栏 .78 / 白纱 .8；暗色 侧栏 .82 / 白纱 .9）；暗色的两个底色写在那条规则里，取自主题 token `--dsw-static-neutral-bluish-950 / -900` |
+| **启动页的暗色配色** | `assets/boot.css` 末尾那块「暗色主题」（底色 / 压暗面纱 / 闪白 / 问候语与状态小字 / 进度条轨道 / 头像白圈与反光）；启动页那张背景图源在 `assets/wallpaper.css` 两条 `--dshs-splash-bg` 里 |
 | **主界面问候语 / 打字机 / 光标 / 摘 logo 与徽章** | 设置页的「主界面标题」卡片（存 `$DSH_HOME/dsh-startup-animation/config.json`）；想改判断 hero 的锚点或光标动画，看 `client/client.js` 的 `HERO_FROM` 与 `assets/hero.css` |
 | **画质档位 / 强制动效** | 设置页的「启动动画效果」卡片；三档的粒子数在 `assets/boot.js` 的 `COUNTS`，各档的画法在 `assets/boot.css` 的 `html.dshs-fx-*` |
 | **节日彩蛋** | 日期窗口在 `lib/index.js` 的 `autoFestival()`（纯函数，自检用固定日期跑过）；配色与专属粒子在 `assets/boot.css` 的 `html.dshs-fest-*`，粒子数量在 `boot.js` 的 `FESTIVAL` 那几行 |
@@ -201,9 +202,16 @@ node check.mjs      # Node 18+
 壁纸照样铺，只是换一套配色与一张图：白纱变深（默认 90%，浅色是 80%），侧栏与内容区用主题自己的
 深色（`#151517` / `#1b1b1c`），壁纸则取「深色壁纸」那个槽位 —— **没单独设过就一直跟着浅色那张走**，
 在设置里换过之后才各用各的。深浅两套透明度也分开存，设置页里的两个滑块显示的是**当前主题**那一套，
-切主题就换一组，另一套的值写在卡片提示里。启动动画本身仍是浅色的（这一版没适配它），
-所以暗色下的过场是"浅色动画 → 收尾白纱转深 → 落到深色主界面"，预览小窗也跟着当前主题走。
-嫌暗色压得不够或太狠，直接拖那两个滑块；想清零：暗色白纱拉到 0 就是壁纸原图。
+切主题就换一组，另一套的值写在卡片提示里。预览小窗也跟着当前主题走。
+
+**启动动画一样适配**（`boot.css` 末尾那块 `暗色主题`）：只翻那几件真正与浅色绑定的东西 ——
+底色、提亮面纱（暗色下变成压暗面纱）、开场那次闪白、问候语与状态小字的颜色、进度条轨道，
+以及头像那圈白描边与玻璃反光（图本身不动）。极光 / 星尘 / 花瓣 / 雪花 / 流星 / 光带 / 光晕 /
+加载环 / 进度条填充 / 暖光都是自发光的粉紫色系，压在深底上就是夜景本身，**一律不动**；
+那块里也刻意没有 `filter` / `backdrop-filter`，不动作者按浅色场景调过的帧率。
+背景图同样跟着主题走（浅色 `/dsh-startup/bg`、暗色 `/dsh-startup/bgDark`，只看生效的那一张），
+所以收尾那一下仍然是"启动页背景 == 主界面壁纸"，不会跳图。
+嫌暗色压得不够或太狠，直接拖「侧栏与壁纸透明度」那两个滑块；想清零：暗色白纱拉到 0 就是壁纸原图。
 
 **会不会白屏？**
 不会。任何一步抛异常都会立刻撤掉启动页、把主界面放出来 —— 最坏情况是"没有动画"，
