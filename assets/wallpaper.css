@@ -1,26 +1,37 @@
 /* 主界面壁纸（图二）。和启动页同一张图——启动页收尾会把它收到 1:1 再交接，所以接得上。
    这份样式不参与启动页收尾清理，常驻整个页面生命周期。
 
-   做法只有两条：把外壳底色变量改透明、把侧栏底色变量改成半透白，壁纸画在 body 上。
-   面板、卡片、代码块、下拉菜单用的都是别的变量，一律保持不透明——文字永远落在 ≥78% 白底上，
+   做法只有两条：把外壳底色变量改透明、把侧栏底色变量改成半透明，壁纸画在 body 上。
+   面板、卡片、代码块、下拉菜单用的都是别的变量，一律保持不透明——文字永远落在 ≥78% 的底上，
    所以壁纸再花也不会影响可读性。
-   深色主题不套用：浅色壁纸配浅色文字会糊成一片，切到深色就还是原来的深色界面。
 
-   两个透明度旋钮（设置页「侧栏与壁纸透明度」卡片，值 0~100 → 换算成 0~1 的 alpha）：
+   浅色与暗色各一套。主题把 `data-ds-dark-theme` 挂在 body 上（见 dsh-client-ui-theme），
+   所以两条规则可以并存，切换主题不需要任何 JS：
 
-     --dshs-sidebar  侧栏底色（--dsw-specific-sidebar-fill）的不透明度。
-                     消费方是 dsh-client-ui-sidebar 的
-                     `.hHd-Xa_root { background: var(--dsw-specific-sidebar-fill) }`：
-                     0 = 侧栏全透明、壁纸原样透出来；100 = 纯白；默认 .78（就是原来的值）。
-                     在 macOS 上不生效：那份样式里还有 `[data-platform=darwin] .hHd-Xa_root{background:0 0}`，
-                     侧栏本来就全透明。
-     --dshs-veil     白纱浓度。压在图上的那层白纱，越大壁纸越淡、文字越清楚。
-                     启动页收尾的 .dshs-handoff 用的是同一组 --dshs-wall-veil-*，所以两边一起变，
-                     衔接不会跳。默认 .8（配合下面的 .85 系数正好是原来的 .8 / .68）。
+     浅色                                          暗色
+     --dshs-veil     白纱浓度，默认 .8             --dshs-veil-dark     默认 .9
+     --dshs-sidebar  侧栏不透明度，默认 .78        --dshs-sidebar-dark  默认 .82
 
-   这两个变量由宿主在首帧前写进 `<html>` 的行内样式（lib/index.js 的 configScript）。
-   这里只用带 fallback 的 `var()` 读，**不在这里重新声明同名变量**——声明了就会盖掉行内值，
-   滑块就再也没反应了。
+   两套值分别存在 config.json 的 veilOpacity / sidebarOpacity 与 veilOpacityDark /
+   sidebarOpacityDark 里，由宿主在首帧前写成 `<html>` 上的行内样式（lib/index.js 的
+   configScript）。这里只用带 fallback 的 `var()` 读，**不在这里重新声明同名变量**——
+   声明了就会盖掉行内值，滑块就再也没反应了。
+
+   暗色用的两个底色取自主题自己的 token：--dsw-static-neutral-bluish-950 = #151517（页面底）、
+   -1000 = #0f1115、-900 = #1b1b1c（侧栏底），所以看起来和周围的深色界面是同一种黑。
+   暗色那组默认值比浅色高（白纱 .9 对 .8），因为深色界面的文字是浅色的，花图不压暗会糊字。
+
+   图片也是两个槽位：浅色用 /dsh-startup/bg，暗色用 /dsh-startup/bgDark（URL 就是槽位名，
+   磁盘上的文件名前缀则是 bg-dark.）。暗色那张没单独设过时，宿主会直接把它解析成浅色那张
+   （同一个文件、连用户换过的图也算），所以"没配深色壁纸就跟浅色一致"是宿主的解析行为，
+   不在这里写死。
+
+   侧栏那层（--dsw-specific-sidebar-fill）的消费方是 dsh-client-ui-sidebar 的
+   `.hHd-Xa_root { background: var(--dsw-specific-sidebar-fill) }`。它在 macOS 上不生效：
+   那份样式里还有 `[data-platform=darwin] .hHd-Xa_root{background:0 0}`，侧栏本来就全透明。
+
+   启动页收尾层（boot.css 的 .dshs-handoff）复用同一组 --dshs-wall-veil-a/b，所以两边白度
+   永远一致、收尾不会跳；暗色下它会跟着一起变深，那段过场正好变成"浅色动画收进深色界面"。
 
    `background-attachment: fixed` 也去掉了：这个应用没有整页滚动，固不固定肉眼看不出区别，
    但 fixed 背景在某些机器上会走更慢的合成路径。 */
@@ -33,4 +44,14 @@ html body:not([data-ds-dark-theme]) {
   background:
     linear-gradient(var(--dshs-wall-veil-a), var(--dshs-wall-veil-b)),
     url("/dsh-startup/bg") center / cover no-repeat #f7f1f8;
+}
+
+html body[data-ds-dark-theme] {
+  --dshs-wall-veil-a: rgba(21, 21, 23, var(--dshs-veil-dark, .9));
+  --dshs-wall-veil-b: rgba(15, 17, 21, calc(var(--dshs-veil-dark, .9) * .92));
+  --dsw-alias-bg-base: transparent;
+  --dsw-specific-sidebar-fill: rgba(27, 27, 28, var(--dshs-sidebar-dark, .82));
+  background:
+    linear-gradient(var(--dshs-wall-veil-a), var(--dshs-wall-veil-b)),
+    url("/dsh-startup/bgDark") center / cover no-repeat #151517;
 }

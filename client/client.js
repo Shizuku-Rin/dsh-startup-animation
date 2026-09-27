@@ -4,10 +4,11 @@
  * 交互只走本插件自己的 HTTP 路由（/dsh-startup/images…、/dsh-startup/config、/dsh-startup/preview），
  * 不占 DSH 的 RPC 通道。
  *
- * 页面结构：顶上是一块实时预览（把宿主的预览页塞进 sandbox iframe，换图即重放），
- * 然后是「主界面标题」卡片（问候语 / 打字机 / 光标 / 隐藏 logo 与预览版徽章），
- * 「侧栏与壁纸透明度」卡片（侧栏不透明度 / 壁纸白纱两个滑块，拖动即时改 `<html>` 上的
- * CSS 变量、松手落盘），最后两张卡片分别管头像与背景图（点选或拖拽上传、可恢复内置默认图）。
+ * 页面结构：顶上是一块实时预览（把宿主的预览页塞进 sandbox iframe，换图即重放；
+ * 跟着当前主题走浅色 / 暗色两套假界面），然后是「主界面标题」卡片（问候语 / 打字机 /
+ * 光标 / 隐藏 logo 与预览版徽章），「侧栏与壁纸透明度」卡片（侧栏不透明度 / 壁纸白纱两个
+ * 滑块，浅色与暗色各存一套值、卡片显示当前主题那一套；拖动即时改 `<html>` 上的 CSS 变量、
+ * 松手落盘），最后三张卡片分别管头像、背景图与深色壁纸（点选或拖拽上传、可恢复内置默认图）。
  *
  * 设置页之外还顺手改造主界面 hero：把新会话标题「探索未至之境」换成可配置的问候语并逐字打出来，
  * 同时摘掉标题左边的鲸鱼 logo 与右边的「预览版」徽章（见下面的 hero* 函数）。
@@ -32,7 +33,12 @@ window.__ModuleLoader__.load({
       {
         slot: 'bg',
         label: '背景图',
-        hint: '启动动画的背景，同时也是主界面壁纸；建议横图，界面里会按 cover 铺满。',
+        hint: '启动动画的背景，同时也是「浅色主题」下的主界面壁纸；建议横图，界面里会按 cover 铺满。',
+      },
+      {
+        slot: 'bgDark',
+        label: '深色壁纸',
+        hint: '「暗色主题」下的主界面壁纸。不换的话就跟着上面那张浅色壁纸走（你换了浅色图它也一起变）；换过之后就只影响暗色主题。建议用偏暗的图，配深色白纱文字对比度更稳。',
       },
     ]
 
@@ -85,23 +91,31 @@ window.__ModuleLoader__.load({
 
     /**
      * 侧栏与壁纸的两个透明度旋钮：字段名 → CSS 变量 + 文案 + 说明。
+     * 每项都带浅色 / 暗色两套（`key` / `keyDark`、`cssVar` / `cssVarDark`），
+     * 卡片只显示"当前主题"那一组，另一组照旧留在 <html> 上，切主题不需要重算。
      * 滑块、数值回显与说明都由这份表驱动，加一项只改这里。
      * 变量名与 lib/index.js 的 configScript、assets/wallpaper.css 里的 `var()` 是一套。
      */
     const WALL_SLIDERS = [
       {
         key: 'sidebarOpacity',
+        keyDark: 'sidebarOpacityDark',
         cssVar: '--dshs-sidebar',
+        cssVarDark: '--dshs-sidebar-dark',
         fallback: 78,
+        fallbackDark: 82,
         label: '侧栏不透明度',
-        hint: '左边那一栏底色的不透明度：78% 是原来的样子；调低壁纸在侧栏里更明显（0% 就是全透明、壁纸原样透出来），调到 100% 是纯白、侧栏完全盖住壁纸。macOS 上侧栏本来就是全透明，这一项不起作用。',
+        hint: '左边那一栏底色的不透明度：78%（浅色）/ 82%（暗色）就是原来的样子；调低壁纸在侧栏里更明显（0% 是全透明、壁纸原样透出来），调到 100% 是纯色底、侧栏完全盖住壁纸。macOS 上侧栏本来就是全透明，这一项不起作用。',
       },
       {
         key: 'veilOpacity',
+        keyDark: 'veilOpacityDark',
         cssVar: '--dshs-veil',
+        cssVarDark: '--dshs-veil-dark',
         fallback: 80,
+        fallbackDark: 90,
         label: '壁纸白纱',
-        hint: '压在壁纸上的白纱浓度：越大壁纸越淡、文字越清楚；0% 是壁纸原图（花一点的图可能会糊字）。启动动画收尾也用这一组值，两边一起变。',
+        hint: '压在壁纸上的白纱浓度：越大壁纸越淡、文字越清楚；0% 是壁纸原图（花一点的图可能会糊字）。暗色默认 90%，因为深色界面配的是浅色文字，白纱得比浅色那组更浓。启动动画收尾也用同一组值（按主题各取一套）。',
       },
     ]
 
@@ -110,13 +124,29 @@ window.__ModuleLoader__.load({
       return Number.isFinite(value) ? Math.min(100, Math.max(0, Math.round(value))) : fallback
     }
 
+    /** 当前是不是暗色主题：主题插件把 `data-ds-dark-theme` 挂在 body 上。 */
+    function isDarkTheme() {
+      return typeof document !== 'undefined' && document.body !== null && document.body.hasAttribute('data-ds-dark-theme')
+    }
+
+    /** 一项旋钮在当前主题下的字段名 / 兜底值（卡片与写变量都走这里，免得两处各判一次）。 */
+    function slotOf(item, dark) {
+      return dark
+        ? { key: item.keyDark, cssVar: item.cssVarDark, fallback: item.fallbackDark }
+        : { key: item.key, cssVar: item.cssVar, fallback: item.fallback }
+    }
+
     /**
-     * 把两个透明度写到 `<html>` 的行内样式上：wallpaper.css 用带 fallback 的 `var()` 读，
-     * 所以拖完立刻见效、不用刷新。宿主下次渲染页面时（configScript）会写同样两个变量。
+     * 把两套（共四个）透明度写到 `<html>` 的行内样式上：wallpaper.css 用带 fallback 的 `var()` 读，
+     * 所以拖完立刻见效、不用刷新；主题切到哪一套由 CSS 自己按 body 的属性挑，这里不用管。
+     * 宿主下次渲染页面时（configScript）会写同样四个变量。
      */
     function applyWallpaperVars(config) {
       const el = document.documentElement
-      for (const item of WALL_SLIDERS) el.style.setProperty(item.cssVar, String(clampPercent(config[item.key], item.fallback) / 100))
+      for (const item of WALL_SLIDERS) {
+        el.style.setProperty(item.cssVar, String(clampPercent(config[item.key], item.fallback) / 100))
+        el.style.setProperty(item.cssVarDark, String(clampPercent(config[item.keyDark], item.fallbackDark) / 100))
+      }
     }
 
     /** 两张配置卡片共用的存盘动作：POST 一份局部配置，返回宿主校验后的完整配置。 */
@@ -248,19 +278,27 @@ window.__ModuleLoader__.load({
       ok: { margin: '10px 0 0', color: 'var(--dsw-alias-state-success-primary, #16a34a)' },
     }
 
+    /**
+     * 一张图的状态文案。`inherited` 是宿主给的：这个槽位没单独设过图，正跟着别的槽位走
+     * （暗色壁纸跟随浅色），这时候说"跟随浅色壁纸"比说"内置默认图"准确得多。
+     */
     function describe(state) {
       if (!state) return '读取中…'
       const size = Math.max(1, Math.round((state.bytes || 0) / 1024))
+      if (state.inherited === true) return `跟随浅色壁纸 · ${size} KB`
       return (state.custom ? '自定义图' : '内置默认图') + ` · ${size} KB`
     }
 
-    /** 图片地址带上 mtime 作为版本号，换图后预览立刻更新。 */
+    /**
+     * 图片地址带上 mtime 作为版本号，换图后预览立刻更新。
+     * 不再要求 `custom`：跟随浅色的槽位拿的是被继承那张的 mtime，浅色换图时它也得跟着换。
+     */
     function imageUrl(slot, state) {
-      const version = state && state.custom && state.mtime ? state.mtime : 0
+      const version = state && state.mtime ? state.mtime : 0
       return `/dsh-startup/${slot}?v=${version}`
     }
 
-    /** 两张图的版本号拼起来：任何一张换了，预览 iframe 都会重新挂载并重放。 */
+    /** 几张图的版本号拼起来：任何一张换了，预览 iframe 都会重新挂载并重放。 */
     function stamp(state) {
       if (!state) return 'loading'
       return SLOTS.map((item) => {
@@ -280,6 +318,9 @@ window.__ModuleLoader__.load({
       const [nonce, setNonce] = useState(0)
       // 状态读回来之前先不挂 iframe：否则会先播一遍、拿到 mtime 后再重挂播第二遍
       const ready = props.state !== null
+      // 预览页是独立文档，拿不到宿主的主题属性，所以按当前主题把 `?dark=1` 带进去：
+      // 暗色下用深色假界面 + 壁纸样式里那条暗色分支，看到的就是真实过场
+      const theme = props.dark ? '?dark=1' : ''
       return h('div', { style: styles.previewCard }, [
         h('div', { key: 'head', style: styles.previewHead }, [
           h('p', { key: 'title', style: styles.previewTitle }, '实时预览'),
@@ -295,7 +336,7 @@ window.__ModuleLoader__.load({
               key: 'open',
               type: 'button',
               style: styles.ghost,
-              onClick: () => window.open('/dsh-startup/preview', '_blank', 'noopener'),
+              onClick: () => window.open('/dsh-startup/preview' + theme, '_blank', 'noopener'),
             }, '新标签打开'),
           ]),
         ]),
@@ -304,14 +345,14 @@ window.__ModuleLoader__.load({
         // 也不会把脚本能力带进设置页。
         ready
           ? h('iframe', {
-            key: stamp(props.state) + '-' + splashStamp(props.config) + '-' + nonce,
+            key: stamp(props.state) + '-' + splashStamp(props.config) + '-' + (props.dark ? 'dark' : 'light') + '-' + nonce,
             style: styles.frame,
-            src: '/dsh-startup/preview',
+            src: '/dsh-startup/preview' + theme,
             sandbox: 'allow-scripts',
             title: '启动动画预览',
           })
           : h('div', { key: 'idle', style: Object.assign({}, styles.frame, styles.frameIdle) }, '正在读取图片状态…'),
-        h('p', { key: 'hint', style: styles.hint }, '换完图、改完档位或节日，这里会自动重放一遍；「新标签打开」可放大看。预览里跑的启动动画与真实开机时完全同一份代码。'),
+        h('p', { key: 'hint', style: styles.hint }, '换完图、改完档位或节日，这里会自动重放一遍；「新标签打开」可放大看。预览里跑的启动动画与真实开机时完全同一份代码，也会跟着当前主题（浅色 / 暗色）走。'),
       ])
     }
 
@@ -447,12 +488,14 @@ window.__ModuleLoader__.load({
 
     /**
      * 「侧栏与壁纸透明度」卡片：侧栏不透明度 + 壁纸白纱两个滑块。
+     * 浅色 / 暗色各存一套值，卡片显示的是**当前主题**那一套（props.dark 由设置页跟着
+     * body 上的 data-ds-dark-theme 传下来）：切主题就换一组，不用来回改。
      * 拖动过程中只改页面上的 CSS 变量（立刻见效、不发请求），松手才落盘 —— 每像素一次 POST 没必要。
-     * 宿主没重启过的话配置里根本没有这两个字段（旧版 sanitizeConfig 会把不认识的键丢掉），
+     * 宿主没重启过的话配置里根本没有这几个字段（旧版 sanitizeConfig 会把不认识的键丢掉），
      * 所以先探测一次：不认识就整卡禁用并写明原因，免得用户拉半天以为坏了。
      */
     function WallpaperCard(props) {
-      const supported = typeof props.config.sidebarOpacity === 'number' && typeof props.config.veilOpacity === 'number'
+      const supported = WALL_SLIDERS.every((item) => typeof props.config[item.key] === 'number' && typeof props.config[item.keyDark] === 'number')
       const [draft, setDraft] = useState(props.config)
       const [busy, setBusy] = useState(false)
       const [error, setError] = useState(null)
@@ -469,8 +512,9 @@ window.__ModuleLoader__.load({
         applyWallpaperVars(props.config)
       }, [props.config])
 
-      function drag(key, value) {
-        const next = Object.assign({}, latest.current, { [key]: value })
+      function drag(item, value) {
+        const slot = slotOf(item, props.dark)
+        const next = Object.assign({}, latest.current, { [slot.key]: value })
         latest.current = next
         setDraft(next)
         setSaved(false)
@@ -482,10 +526,13 @@ window.__ModuleLoader__.load({
         setBusy(true)
         setError(null)
         try {
-          const data = await saveConfig({
-            sidebarOpacity: clampPercent(latest.current.sidebarOpacity, 78),
-            veilOpacity: clampPercent(latest.current.veilOpacity, 80),
-          })
+          // 只提交当前主题这一套字段：另一套原样留在配置里，不会被这次保存动到
+          const body = {}
+          for (const item of WALL_SLIDERS) {
+            const slot = slotOf(item, props.dark)
+            body[slot.key] = clampPercent(latest.current[slot.key], slot.fallback)
+          }
+          const data = await saveConfig(body)
           latest.current = data.config
           setDraft(data.config)
           applyWallpaperVars(data.config)
@@ -498,13 +545,20 @@ window.__ModuleLoader__.load({
         }
       }
 
+      // 另一套（另一个主题）当前的值：让"两套分开存"这件事在界面上看得见
+      const other = WALL_SLIDERS.map((item) => {
+        const slot = slotOf(item, !props.dark)
+        return item.label + ' ' + clampPercent(draft[slot.key], slot.fallback) + '%'
+      }).join(' · ')
+
       return h('div', { style: styles.formCard }, [
         h('p', { key: 'title', style: styles.title }, '侧栏与壁纸透明度'),
         h('p', { key: 'hint', style: styles.hint }, supported
-          ? '拖动即时生效，不用刷新；松手才写盘。只对浅色主题有效（深色主题不套壁纸）。'
-          : '宿主还是旧版，还没有这两个参数：重启 DSH（让它重新挂载插件）之后，这两个滑块就能用了。'),
+          ? '当前编辑「' + (props.dark ? '深色' : '浅色') + '主题」这一套（另一套：' + other + '）；切主题就换一组。拖动即时生效、松手才写盘。'
+          : '宿主还是旧版，还没有这两组参数：重启 DSH（让它重新挂载插件）之后，这两个滑块就能用了。'),
         ...WALL_SLIDERS.map((item) => {
-          const value = clampPercent(draft[item.key], item.fallback)
+          const slot = slotOf(item, props.dark)
+          const value = clampPercent(draft[slot.key], slot.fallback)
           return h('div', { key: item.key, style: { marginTop: 12, opacity: supported ? 1 : .5 } }, [
             h('label', {
               key: 'label',
@@ -522,7 +576,7 @@ window.__ModuleLoader__.load({
               value: value,
               disabled: !supported || busy,
               style: { width: '100%', margin: 0 },
-              onChange: (event) => drag(item.key, Number(event.target.value)),
+              onChange: (event) => drag(item, Number(event.target.value)),
               // 松手（鼠标 / 触摸 / 键盘）才落盘
               onPointerUp: save,
               onKeyUp: save,
@@ -745,6 +799,8 @@ window.__ModuleLoader__.load({
       const [config, setConfig] = useState(undefined)
       const [festival, setFestival] = useState('')
       const [error, setError] = useState(null)
+      // 主题可能在设置页开着的时候被切走：跟着 body 上的属性走，透明度卡片与预览都据此换一套
+      const [dark, setDark] = useState(isDarkTheme())
 
       React.useEffect(() => {
         let alive = true
@@ -766,6 +822,16 @@ window.__ModuleLoader__.load({
           })
           .catch(() => { if (alive) setConfig(null) })
         return () => { alive = false }
+      }, [])
+
+      // 主题属性由 dsh-client-ui-theme 挂在 body 上：观察它，深浅两套值各归各位
+      React.useEffect(() => {
+        if (typeof MutationObserver === 'undefined' || document.body === null) return undefined
+        const sync = () => setDark(isDarkTheme())
+        sync()
+        const observer = new MutationObserver(sync)
+        observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
+        return () => observer.disconnect()
       }, [])
 
       /** 清掉"刚看过动画"的标记再刷新，这样刷新时启动动画会再播一遍。 */
@@ -800,16 +866,19 @@ window.__ModuleLoader__.load({
           '换掉打开软件时的启动动画、主界面壁纸（含侧栏那层底色的透明度与壁纸白纱），以及主界面新会话那句标题。',
           '图片支持 PNG / JPEG / WebP / GIF，单张上限 12MB；点「选择图片」或直接把图拖到卡片上，',
           '换完上面的预览会自动重放一遍。'),
-        h(Preview, { key: 'preview', state: state, config: config || undefined }),
+        h(Preview, { key: 'preview', state: state, config: config || undefined, dark: dark }),
         config ? h(SplashCard, { key: 'splash', config: config, festival: festival, onSaved: splashSaved, onReplay: replay }) : null,
-        config ? h(WallpaperCard, { key: 'wallpaper', config: config, onSaved: wallpaperSaved }) : null,
+        config ? h(WallpaperCard, { key: 'wallpaper', config: config, dark: dark, onSaved: wallpaperSaved }) : null,
         config ? h(HeroCard, { key: 'hero', config: config, onSaved: heroSaved }) : h('div', { key: 'hero', style: styles.formCard }, [
           h('p', { key: 'title', style: styles.title }, '主界面标题'),
           h('p', { key: 'hint', style: styles.hint }, config === null
             ? '读不到宿主配置（/dsh-startup/config），所以这里暂时改不了。多半是插件刚更新、宿主还没重新挂载：在插件市场里把它重装一次（或重启 DSH）后再刷新本页即可。'
             : '正在读取配置…'),
         ]),
-        ...SLOTS.map((item) => h(SlotCard, {
+        // 宿主是旧版时 /dsh-startup/images 里没有 bgDark（也就没有那条路由），硬渲染出来只会是
+        // 一张永远"读取中…"+ 404 的卡片：所以状态读回来之后只显示宿主确实报了的槽位
+        // （读回来之前先照常渲染，保持原来那两张卡的"读取中…"行为）。
+        ...SLOTS.filter((item) => state === null || state[item.slot] !== undefined).map((item) => h(SlotCard, {
           key: item.slot,
           slot: item.slot,
           label: item.label,

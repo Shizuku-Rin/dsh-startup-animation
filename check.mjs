@@ -52,6 +52,7 @@ assert.deepEqual(
   [
     BASE + '/avatar',
     BASE + '/bg',
+    BASE + '/bgDark',
     BASE + '/boot.js',
     BASE + '/config',
     BASE + '/images',
@@ -59,9 +60,11 @@ assert.deepEqual(
     BASE + '/images/avatar/reset',
     BASE + '/images/bg',
     BASE + '/images/bg/reset',
+    BASE + '/images/bgDark',
+    BASE + '/images/bgDark/reset',
     BASE + '/preview',
   ].sort(),
-  '十个路由必须都注册上',
+  '十三个路由必须都注册上',
 )
 assert.equal(taps.length, 1, '必须只注册一个 index 注入')
 
@@ -74,8 +77,8 @@ const referenced = new Set(
 )
 assert.deepEqual(
   [...referenced].sort(),
-  [BASE + '/avatar', BASE + '/bg', BASE + '/boot.js'],
-  '页面只该引用这三个地址',
+  [BASE + '/avatar', BASE + '/bg', BASE + '/bgDark', BASE + '/boot.js'],
+  '页面只该引用这几个地址',
 )
 for (const url of referenced) assert.ok(routes.has(url), `缺少路由：${url}`)
 
@@ -247,8 +250,22 @@ assert.equal(JSON.parse(back.body).state.avatar.custom, false)
 const stateRes = fakeRes()
 routes.get(BASE + '/images').handler(fakeReq(Buffer.alloc(0)), stateRes)
 const state = JSON.parse(stateRes.body)
-assert.deepEqual(Object.keys(state).sort(), ['avatar', 'bg'])
+assert.deepEqual(Object.keys(state).sort(), ['avatar', 'bg', 'bgDark'])
 assert.equal(state.bg.custom, false)
+
+// 4a2) 深色壁纸槽位：没单独传图时直接给浅色那张，状态标 inherited
+assert.equal(state.bgDark.inherited, true, '深色壁纸没单独设过时应标为「跟随浅色」')
+assert.deepEqual(served('bgDark').body, served('bg').body, '没设深色壁纸时它应原样给浅色那张')
+
+const darkUploaded = await call(BASE + '/images/bgDark', png)
+assert.equal(darkUploaded.status, 200, '深色壁纸也要能上传')
+assert.equal(JSON.parse(darkUploaded.body).state.bgDark.custom, true, '传过之后就不再是跟随浅色')
+assert.deepEqual(served('bgDark').body, png)
+assert.deepEqual(served('bg').body, defaults.bg, '换深色壁纸不该动到浅色那张')
+
+const darkBack = await call(BASE + '/images/bgDark/reset')
+assert.equal(JSON.parse(darkBack.body).state.bgDark.inherited, true, '恢复默认要退回「跟随浅色」')
+assert.deepEqual(served('bgDark').body, served('bg').body)
 
 // 4b) hero 配置：读默认 → 局部保存（其余项不许被打回默认）→ 坏 JSON 被拒 → 恢复默认，全程只碰临时目录
 const readConfig = async () => JSON.parse((await call(BASE + '/config', Buffer.alloc(0))).body).config
@@ -406,12 +423,15 @@ const heroState = {
 const loadedTree = flatten(renderSection({
   avatar: { custom: false, bytes: 4096 },
   bg: { custom: true, bytes: 8192, mtime: 1700000000000 },
+  bgDark: { custom: false, bytes: 8192, mtime: 1700000000000, inherited: true },
 }, heroState, ''), []).join(' ')
 assert.ok(loadedTree.includes('iframe'), '设置页要有实时预览 iframe')
 assert.ok(loadedTree.includes('src=/dsh-startup/preview'), '预览 iframe 要指向宿主的预览路由')
 assert.ok(loadedTree.includes('sandbox=allow-scripts'), '预览 iframe 必须沙箱化，别让它碰真实页面的 sessionStorage')
 assert.ok(/src=\/dsh-startup\/bg\?v=1700000000000/.test(loadedTree), '换过图的槽位预览要带 mtime 版本号')
-assert.ok(loadedTree.includes('type=file'), '两个槽位都要有选图入口')
+assert.ok(/src=\/dsh-startup\/bgDark\?v=1700000000000/.test(loadedTree), '跟随浅色的槽位要带上被继承那张的 mtime，浅色换图时缩略图才会更新')
+assert.ok(loadedTree.includes('跟随浅色壁纸'), '没单独设过的深色壁纸要写明「跟随浅色壁纸」')
+assert.ok(loadedTree.includes('type=file'), '三个槽位都要有选图入口')
 assert.ok(loadedTree.includes('恢复默认'), '换过图的槽位要能恢复内置默认')
 // 启动动画效果卡片：三个档位、强制动效、节日与生日都要在
 assert.ok(loadedTree.includes('启动动画效果'), '设置页要有启动动画效果卡片')
