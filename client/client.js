@@ -6,7 +6,8 @@
  *
  * 页面结构：顶上是一块实时预览（把宿主的预览页塞进 sandbox iframe，换图即重放），
  * 然后是「主界面标题」卡片（问候语 / 打字机 / 光标 / 隐藏 logo 与预览版徽章），
- * 最后两张卡片分别管头像与背景图（点选或拖拽上传、可恢复内置默认图）。
+ * 「侧栏与壁纸透明度」卡片（侧栏不透明度 / 壁纸白纱两个滑块，拖动即时改 `<html>` 上的
+ * CSS 变量、松手落盘），最后两张卡片分别管头像与背景图（点选或拖拽上传、可恢复内置默认图）。
  *
  * 设置页之外还顺手改造主界面 hero：把新会话标题「探索未至之境」换成可配置的问候语并逐字打出来，
  * 同时摘掉标题左边的鲸鱼 logo 与右边的「预览版」徽章（见下面的 hero* 函数）。
@@ -80,6 +81,42 @@ window.__ModuleLoader__.load({
       const el = document.documentElement
       for (const tier of FX_TIERS) el.classList.toggle('dshs-fx-' + tier.id, config.fx === tier.id)
       el.classList.toggle('dshs-force-motion', config.forceMotion === true)
+    }
+
+    /**
+     * 侧栏与壁纸的两个透明度旋钮：字段名 → CSS 变量 + 文案 + 说明。
+     * 滑块、数值回显与说明都由这份表驱动，加一项只改这里。
+     * 变量名与 lib/index.js 的 configScript、assets/wallpaper.css 里的 `var()` 是一套。
+     */
+    const WALL_SLIDERS = [
+      {
+        key: 'sidebarOpacity',
+        cssVar: '--dshs-sidebar',
+        fallback: 78,
+        label: '侧栏不透明度',
+        hint: '左边那一栏底色的不透明度：78% 是原来的样子；调低壁纸在侧栏里更明显（0% 就是全透明、壁纸原样透出来），调到 100% 是纯白、侧栏完全盖住壁纸。macOS 上侧栏本来就是全透明，这一项不起作用。',
+      },
+      {
+        key: 'veilOpacity',
+        cssVar: '--dshs-veil',
+        fallback: 80,
+        label: '壁纸白纱',
+        hint: '压在壁纸上的白纱浓度：越大壁纸越淡、文字越清楚；0% 是壁纸原图（花一点的图可能会糊字）。启动动画收尾也用这一组值，两边一起变。',
+      },
+    ]
+
+    /** 百分比夹到 0~100 的整数：缺字段、坏值、越界都吃得住。 */
+    function clampPercent(value, fallback) {
+      return Number.isFinite(value) ? Math.min(100, Math.max(0, Math.round(value))) : fallback
+    }
+
+    /**
+     * 把两个透明度写到 `<html>` 的行内样式上：wallpaper.css 用带 fallback 的 `var()` 读，
+     * 所以拖完立刻见效、不用刷新。宿主下次渲染页面时（configScript）会写同样两个变量。
+     */
+    function applyWallpaperVars(config) {
+      const el = document.documentElement
+      for (const item of WALL_SLIDERS) el.style.setProperty(item.cssVar, String(clampPercent(config[item.key], item.fallback) / 100))
     }
 
     /** 两张配置卡片共用的存盘动作：POST 一份局部配置，返回宿主校验后的完整配置。 */
@@ -409,6 +446,98 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 「侧栏与壁纸透明度」卡片：侧栏不透明度 + 壁纸白纱两个滑块。
+     * 拖动过程中只改页面上的 CSS 变量（立刻见效、不发请求），松手才落盘 —— 每像素一次 POST 没必要。
+     * 宿主没重启过的话配置里根本没有这两个字段（旧版 sanitizeConfig 会把不认识的键丢掉），
+     * 所以先探测一次：不认识就整卡禁用并写明原因，免得用户拉半天以为坏了。
+     */
+    function WallpaperCard(props) {
+      const supported = typeof props.config.sidebarOpacity === 'number' && typeof props.config.veilOpacity === 'number'
+      const [draft, setDraft] = useState(props.config)
+      const [busy, setBusy] = useState(false)
+      const [error, setError] = useState(null)
+      const [saved, setSaved] = useState(false)
+      // 松手时要读到最新的草稿：指针事件与 React 的状态更新不在同一个任务里，
+      // 与其赌这个时序，不如拖动过程中把最新一份另存下来。
+      const latest = useRef(draft)
+
+      // 别的卡片改了配置（最典型的是「恢复默认」）父组件会把新配置传下来，
+      // 不跟着同步的话这儿的滑块和页面上的变量就都停在旧值上。
+      React.useEffect(() => {
+        latest.current = props.config
+        setDraft(props.config)
+        applyWallpaperVars(props.config)
+      }, [props.config])
+
+      function drag(key, value) {
+        const next = Object.assign({}, latest.current, { [key]: value })
+        latest.current = next
+        setDraft(next)
+        setSaved(false)
+        applyWallpaperVars(next)
+      }
+
+      async function save() {
+        if (busy) return
+        setBusy(true)
+        setError(null)
+        try {
+          const data = await saveConfig({
+            sidebarOpacity: clampPercent(latest.current.sidebarOpacity, 78),
+            veilOpacity: clampPercent(latest.current.veilOpacity, 80),
+          })
+          latest.current = data.config
+          setDraft(data.config)
+          applyWallpaperVars(data.config)
+          setSaved(true)
+          props.onSaved(data.config)
+        } catch (err) {
+          setError(err && err.message ? err.message : String(err))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      return h('div', { style: styles.formCard }, [
+        h('p', { key: 'title', style: styles.title }, '侧栏与壁纸透明度'),
+        h('p', { key: 'hint', style: styles.hint }, supported
+          ? '拖动即时生效，不用刷新；松手才写盘。只对浅色主题有效（深色主题不套壁纸）。'
+          : '宿主还是旧版，还没有这两个参数：重启 DSH（让它重新挂载插件）之后，这两个滑块就能用了。'),
+        ...WALL_SLIDERS.map((item) => {
+          const value = clampPercent(draft[item.key], item.fallback)
+          return h('div', { key: item.key, style: { marginTop: 12, opacity: supported ? 1 : .5 } }, [
+            h('label', {
+              key: 'label',
+              style: Object.assign({}, styles.label, { display: 'flex', justifyContent: 'space-between' }),
+            }, [
+              h('span', { key: 'text' }, item.label),
+              h('span', { key: 'value' }, value + '%'),
+            ]),
+            h('input', {
+              key: 'range',
+              type: 'range',
+              min: 0,
+              max: 100,
+              step: 1,
+              value: value,
+              disabled: !supported || busy,
+              style: { width: '100%', margin: 0 },
+              onChange: (event) => drag(item.key, Number(event.target.value)),
+              // 松手（鼠标 / 触摸 / 键盘）才落盘
+              onPointerUp: save,
+              onKeyUp: save,
+              onBlur: save,
+            }),
+            h('p', { key: 'hint', style: styles.hint }, item.hint),
+          ])
+        }),
+        busy ? h('p', { key: 'busy', style: styles.hint }, '保存中…') : null,
+        saved ? h('span', { key: 'ok', style: styles.ok }, '已生效 ✓') : null,
+        error ? h('p', { key: 'err', style: styles.err }, error) : null,
+      ])
+    }
+
+    /**
      * 「主界面标题」卡片：改问候语、打字机、光标与两处隐藏开关。
      * 存盘后立刻回调 onSaved，主界面那边会拿新配置重放一遍（不用刷新就能看到）。
      */
@@ -632,6 +761,7 @@ window.__ModuleLoader__.load({
             if (data && data.ok === true) {
               setFestival(typeof data.festival === 'string' ? data.festival : '')
               applySplashClasses(data.config)
+              applyWallpaperVars(data.config)
             }
           })
           .catch(() => { if (alive) setConfig(null) })
@@ -650,6 +780,12 @@ window.__ModuleLoader__.load({
         heroApply(next, true)
       }
 
+      /** 壁纸透明度：存盘后按宿主校验返回的值把两个 CSS 变量重算一遍（越界值以宿主为准）。 */
+      function wallpaperSaved(next) {
+        setConfig(next)
+        applyWallpaperVars(next)
+      }
+
       /** 启动动画那边：档位与强制动效立刻挂到 <html> 上，节日只更新"今天"的显示。
        *  顺手清掉"刚播过"的标记：存盘之后刷新一次就能看到新画面，不用再去找那个按钮。 */
       function splashSaved(next, today) {
@@ -661,11 +797,12 @@ window.__ModuleLoader__.load({
 
       return h('div', { style: styles.page, 'data-dshs-ui': '' }, [
         h('p', { key: 'lead', style: styles.lead },
-          '换掉打开软件时的启动动画、主界面壁纸，以及主界面新会话那句标题。',
+          '换掉打开软件时的启动动画、主界面壁纸（含侧栏那层底色的透明度与壁纸白纱），以及主界面新会话那句标题。',
           '图片支持 PNG / JPEG / WebP / GIF，单张上限 12MB；点「选择图片」或直接把图拖到卡片上，',
           '换完上面的预览会自动重放一遍。'),
         h(Preview, { key: 'preview', state: state, config: config || undefined }),
         config ? h(SplashCard, { key: 'splash', config: config, festival: festival, onSaved: splashSaved, onReplay: replay }) : null,
+        config ? h(WallpaperCard, { key: 'wallpaper', config: config, onSaved: wallpaperSaved }) : null,
         config ? h(HeroCard, { key: 'hero', config: config, onSaved: heroSaved }) : h('div', { key: 'hero', style: styles.formCard }, [
           h('p', { key: 'title', style: styles.title }, '主界面标题'),
           h('p', { key: 'hint', style: styles.hint }, config === null

@@ -6,16 +6,30 @@
    所以壁纸再花也不会影响可读性。
    深色主题不套用：浅色壁纸配浅色文字会糊成一片，切到深色就还是原来的深色界面。
 
+   两个透明度旋钮（设置页「侧栏与壁纸透明度」卡片，值 0~100 → 换算成 0~1 的 alpha）：
+
+     --dshs-sidebar  侧栏底色（--dsw-specific-sidebar-fill）的不透明度。
+                     消费方是 dsh-client-ui-sidebar 的
+                     `.hHd-Xa_root { background: var(--dsw-specific-sidebar-fill) }`：
+                     0 = 侧栏全透明、壁纸原样透出来；100 = 纯白；默认 .78（就是原来的值）。
+                     在 macOS 上不生效：那份样式里还有 `[data-platform=darwin] .hHd-Xa_root{background:0 0}`，
+                     侧栏本来就全透明。
+     --dshs-veil     白纱浓度。压在图上的那层白纱，越大壁纸越淡、文字越清楚。
+                     启动页收尾的 .dshs-handoff 用的是同一组 --dshs-wall-veil-*，所以两边一起变，
+                     衔接不会跳。默认 .8（配合下面的 .85 系数正好是原来的 .8 / .68）。
+
+   这两个变量由宿主在首帧前写进 `<html>` 的行内样式（lib/index.js 的 configScript）。
+   这里只用带 fallback 的 `var()` 读，**不在这里重新声明同名变量**——声明了就会盖掉行内值，
+   滑块就再也没反应了。
+
    `background-attachment: fixed` 也去掉了：这个应用没有整页滚动，固不固定肉眼看不出区别，
    但 fixed 背景在某些机器上会走更慢的合成路径。 */
 
 html body:not([data-ds-dark-theme]) {
-  /* 图片上压的那层白纱。启动页收尾会用同一组变量把白度补齐（见 boot.css 的
-     .dshs-handoff），所以改浓淡只改这两个值，两边一起变。 */
-  --dshs-wall-veil-a: rgba(253, 250, 254, .8);
-  --dshs-wall-veil-b: rgba(250, 247, 253, .68);
+  --dshs-wall-veil-a: rgba(253, 250, 254, var(--dshs-veil, .8));
+  --dshs-wall-veil-b: rgba(250, 247, 253, calc(var(--dshs-veil, .8) * .85));
   --dsw-alias-bg-base: transparent;
-  --dsw-specific-sidebar-fill: rgba(255, 255, 255, .78);
+  --dsw-specific-sidebar-fill: rgba(255, 255, 255, var(--dshs-sidebar, .78));
   background:
     linear-gradient(var(--dshs-wall-veil-a), var(--dshs-wall-veil-b)),
     url("/dsh-startup/bg") center / cover no-repeat #f7f1f8;
