@@ -1063,9 +1063,31 @@ window.__ModuleLoader__.load({
         .catch(() => {})
     }
 
+    /**
+     * 把 body 上真正的主题属性镜像到 `<html data-dshs-dark>`。
+     *
+     * 壁纸与启动页的 CSS 只认这个标记（见 assets/wallpaper.css 的说明）：首帧那一次是宿主注入的
+     * 探针脚本判的（lib/index.js 的 THEME_PROBE，早于主题脚本、也早于首帧），这里负责运行期
+     * 切主题时跟上 —— 否则标记会停在打开页面那一刻的值。
+     */
+    function themeMirror() {
+      if (typeof MutationObserver === 'undefined' || typeof document === 'undefined') return null
+      const host = document.body
+      if (!host) return null
+      const sync = () => {
+        document.documentElement.dataset.dshsDark = host.hasAttribute('data-ds-dark-theme') ? '1' : '0'
+      }
+      sync()
+      const observer = new MutationObserver(sync)
+      observer.observe(host, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
+      return observer
+    }
+
     function apply(ctx) {
       // 客户端 HMR 重载会重跑 apply：先撤旧观察器再挂新的——既不叠加，
       // 改了配置也能随热更立刻生效（旧观察器还揣着旧配置，留着会抢着改回去）
+      if (window.__dshsThemeMirror) window.__dshsThemeMirror.disconnect()
+      window.__dshsThemeMirror = themeMirror()
       if (window.__dshsHeroWatch) window.__dshsHeroWatch.disconnect()
       window.__dshsHeroWatch = heroWatch()
       heroLoad()

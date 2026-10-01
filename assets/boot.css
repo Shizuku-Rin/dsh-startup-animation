@@ -8,7 +8,8 @@
    入场按一条时间轴依次点亮，常驻的循环各自错开周期，避免整屏一起"呼吸"；
    --dshs-px / --dshs-py 由 boot.js 跟随指针写入，各层按深度换算成位移，做出视差纵深。 */
 
-html.dshs-boot { background: #f7f1f8; }
+/* 启动页底色交给下面「暗色主题」块里那两条带标记的规则：标记还没写上时谁都不画，
+   画布用的是主题自己的底色（暗色下是 #151517），不会先闪一帧浅紫。 */
 
 /* 启动页盖着的时候先把主界面藏起来（opacity:0 的层浏览器会跳过绘制，省一笔）。
    收尾时不整体淡入 —— 浮现交给下面 dshs-assemble：一块一块冒出来，"组装"才看得出来。
@@ -829,57 +830,60 @@ html.dshs-fx-fancy #dshs .dshs-star {
    加载环 / 进度条填充 / 暖光 / 暗角）都是自发光的粉紫色系，压在深底上就是夜景本身 —— 一律不动，
    既省事，也保住了作者按浅色场景调过的帧率：**这一块只改颜色，不加任何 filter / backdrop-filter**。
 
-   主题属性（body 上的 data-ds-dark-theme）由 dsh-client-ui-theme 的启动期注入在**首帧之前**
-   针对 body 挂好（head 里那段 canvas 底色 + body 里那段同步脚本），所以这里纯 CSS 判断就够，
-   不会出现"先按浅色画一帧再跳成暗色"。 */
+   判据用 `html[data-dshs-dark]`：宿主在 head 闭合之前那次首帧探针就写好了（lib/index.js 的
+   THEME_PROBE），客户端插件再把它跟 body 上真正的主题属性同步。**不要**改回
+   `body:not([data-ds-dark-theme])` 那种"没挂上就算浅色"的写法 —— 主题属性由 body 开头的内联
+   脚本挂，而那个脚本要等外壳的外链样式（render-blocking），中间那一帧足够浏览器先画出浅色启动页
+   （暗色用户实测到的白闪）。 */
 
 /* 底色：原来那层淡紫只可能从背景图 0.8s 淡入的缝隙里透出来，暗色下换成和主界面同一个黑。
    html 上够不到 body 的属性，用 :has() 指过去（侧栏那边也在用 :has()，运行时支持没问题）；
    body 自己的底色由主题的启动期注入负责，这里不用重复。 */
-html.dshs-boot:has(body[data-ds-dark-theme]) { background: #151517; }
+html[data-dshs-dark="0"].dshs-boot { background: #f7f1f8; }
+html[data-dshs-dark="1"].dshs-boot { background: #151517; }
 
 /* 提亮面纱 → 压暗面纱：浅色场景靠它把中心提亮，暗色下得反过来把中心压住，文字才浮得起来。 */
-html body[data-ds-dark-theme] #dshs .dshs-veil {
+html[data-dshs-dark="1"] #dshs .dshs-veil {
   background:
     radial-gradient(60% 50% at 50% 46%, rgba(8, 8, 12, .44), rgba(8, 8, 12, 0) 72%),
     linear-gradient(180deg, rgba(8, 8, 12, .3), rgba(8, 8, 12, .1) 45%, rgba(12, 10, 18, .44));
 }
 
 /* 收尾闪白：白 bloom 在暗色下等于照眼睛，降成很淡的冷光。 */
-html body[data-ds-dark-theme] #dshs .dshs-flash {
+html[data-dshs-dark="1"] #dshs .dshs-flash {
   background: radial-gradient(58% 48% at 50% 46%, rgba(226, 228, 240, .26), rgba(226, 228, 240, 0) 72%);
 }
 
 /* 问候语与状态小字：深字 + 白阴影 → 浅字 + 深阴影。 */
-html body[data-ds-dark-theme] #dshs .dshs-hello {
+html[data-dshs-dark="1"] #dshs .dshs-hello {
   color: #f4f2f8;
   text-shadow: 0 1px 0 rgba(0, 0, 0, .55), 0 10px 26px rgba(0, 0, 0, .6);
 }
-html body[data-ds-dark-theme] #dshs .dshs-tip {
+html[data-dshs-dark="1"] #dshs .dshs-tip {
   color: rgba(233, 231, 240, .74);
   text-shadow: 0 1px 0 rgba(0, 0, 0, .5);
 }
 
 /* 进度条轨道：浅色下是「深色半透 + 白内描边」，暗色下反过来。 */
-html body[data-ds-dark-theme] #dshs .dshs-bar {
+html[data-dshs-dark="1"] #dshs .dshs-bar {
   background: rgba(255, 255, 255, .14);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3);
 }
 
 /* 头像：图本身不换（头像不用适配），但那一圈白描边与玻璃反光在深底上太吵，压到"描边"级别；
    原先那层紫色投影也换成纯黑，免得白圈熄了、紫边还在发光。 */
-html body[data-ds-dark-theme] #dshs .dshs-avatar {
+html[data-dshs-dark="1"] #dshs .dshs-avatar {
   background: #151517;
   box-shadow:
     0 0 0 6px rgba(255, 255, 255, .16),
     0 0 0 7px rgba(186, 166, 224, .4),
     0 30px 70px -20px rgba(0, 0, 0, .8);
 }
-html body[data-ds-dark-theme] #dshs .dshs-shine {
+html[data-dshs-dark="1"] #dshs .dshs-shine {
   background: linear-gradient(102deg, rgba(255, 255, 255, 0) 40%, rgba(255, 255, 255, .42) 50%, rgba(255, 255, 255, 0) 60%);
 }
 
 /* 暗角：浅色下是紫调（压出色偏），暗色下直接压黑更干净。 */
-html body[data-ds-dark-theme] #dshs .dshs-vig {
+html[data-dshs-dark="1"] #dshs .dshs-vig {
   background: radial-gradient(120% 96% at 50% 46%, rgba(0, 0, 0, 0) 46%, rgba(0, 0, 0, .4) 100%);
 }

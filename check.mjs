@@ -171,12 +171,18 @@ assert.equal((wallCss.match(/--dshs-splash-bg:/g) || []).length, 2, '浅色/暗�
 assert.ok(/--dshs-splash-bg:\s*url\("\/dsh-startup\/bg"\)/.test(wallCss), '浅色那条要指向 /dsh-startup/bg')
 assert.ok(/--dshs-splash-bg:\s*url\("\/dsh-startup\/bgDark"\)/.test(wallCss), '暗色那条要指向 /dsh-startup/bgDark')
 // 暗色适配只改颜色：作者按浅色场景调过帧率，这块里出现 filter / backdrop-filter 就是走偏了
-const darkSplash = splashCss.slice(splashCss.indexOf('暗色主题'), splashCss.length)
-assert.ok(darkSplash.includes('data-ds-dark-theme'), '暗色块要以 body 上的主题属性为准')
-assert.ok(!/filter\s*:/.test(darkSplash), '暗色块不许引入 filter 声明')
-assert.ok(!/[;{]\s*(?:-webkit-)?backdrop-filter\s*:/.test(darkSplash), '暗色块不许引入 backdrop-filter 声明')
+// （切片要从注释的 /* 开始，否则注释正文会混进断言 —— 标记本身写在注释里）
+const darkMarkerAt = splashCss.indexOf('── 暗色主题')
+assert.ok(darkMarkerAt !== -1, 'boot.css 里找不到「暗色主题」那一块')
+const darkSplash = splashCss.slice(splashCss.lastIndexOf('/*', darkMarkerAt))
+assert.ok(darkSplash.includes('data-dshs-dark'), '暗色块要以 html 上的首帧探针标记为准（不能读 body 上的主题属性，那会晚一帧）')
+// 去注释后再断言选择器，免得注释里解释性的字面量把自己绊倒
+const darkSplashCss = darkSplash.replace(/\/\*[\s\S]*?\*\//g, '')
+assert.ok(!darkSplashCss.includes('data-ds-dark-theme'), '暗色块不该再出现 body 上的主题属性选择器')
+assert.ok(!/filter\s*:/.test(darkSplashCss), '暗色块不许引入 filter 声明')
+assert.ok(!/[;{]\s*(?:-webkit-)?backdrop-filter\s*:/.test(darkSplashCss), '暗色块不许引入 backdrop-filter 声明')
 for (const piece of ['dshs-veil', 'dshs-flash', 'dshs-hello', 'dshs-tip', 'dshs-bar', 'dshs-avatar', 'dshs-shine']) {
-  assert.ok(new RegExp('data-ds-dark-theme\\]\\s*#dshs\\s+\\.' + piece).test(darkSplash), `暗色块要翻 .${piece}（浅色场景的那几件）`)
+  assert.ok(new RegExp('data-dshs-dark="1"\\]\\s*#dshs\\s+\\.' + piece).test(darkSplashCss), `暗色块要翻 .${piece}（浅色场景的那几件）`)
 }
 // 视差一半在 JS（写变量）一半在 CSS（消费变量），两边都得在
 assert.ok(js.includes('--dshs-px') && js.includes('--dshs-py'), 'boot.js 要把指针位置写进视差变量')
@@ -202,12 +208,98 @@ assert.ok(heroCss.includes('prefers-reduced-motion'), 'hero.css 要在「减少�
 // 文案与开关都来自配置路由，client.js 不许再把问候语写死
 assert.ok(clientJs.includes("'/dsh-startup/config'"), 'client.js 要从配置路由取 hero 配置')
 assert.ok(clientJs.includes('探索未至之境') === true, 'client.js 要留着原文案当"找到 hero 标题"的锚点')
+
+// 4b) 会被内联进 <head> 的三份样式里，不许出现能截断文档的字面量。
+//     宿主是拿字符串拼 HTML 的：`</style>` 会把样式块提前关掉；`</head>` 会让首帧探针
+//     （THEME_PROBE）插错位置 —— 后者真踩过：探针被塞进 CSS 注释里当样式解析，脚本永远不执行，
+//     于是 html 上那个主题标记永远不出现，壁纸整层静默失效。
+for (const [name, text] of [['boot.css', splashCss], ['wallpaper.css', wallCss], ['hero.css', heroCss]]) {
+  for (const literal of ['</style>', '</head>', '</body>', '</script>', '<script']) {
+    assert.ok(!text.includes(literal), `${name} 里不该出现 ${literal}：它会被内联进 <head>，字符串拼接注入会被它截断`)
+  }
+  // 注释必须成对且注释之外没有中文：注释少写一个 /* 会把后面的规则整段吞掉（踩过一次）
+  assert.equal((text.match(/\/\*/g) || []).length, (text.match(/\*\//g) || []).length, `${name} 的 /* 与 */ 数量不等`)
+  assert.ok(!/[\u4e00-\u9fff]/.test(text.replace(/\/\*[\s\S]*?\*\//g, '')), `${name} 的注释之外出现了中文：多半是注释没闭合`)
+}
 // 认标题必须"整段全等"，且跳过插件自己的设置界面：设置卡片的说明文字里也含那句原文，
 // 用"包含"判定会把它当标题接管，再顺手把卡片里的输入框/开关/按钮全当徽章藏掉
 // —— 表现就是"设置里那张卡片只剩一行字，改不了"（真实踩过一次）。
 assert.ok(/trim\(\) === HERO_FROM/.test(clientJs), 'hero 标题要按整段文字精确匹配，不能用"包含"')
 assert.ok(clientJs.includes("'[data-dshs-ui]'"), 'hero 扫描要跳过插件自己的设置界面')
 assert.ok(clientJs.includes("'data-dshs-ui': ''"), '设置页根节点要带上 data-dshs-ui 标记')
+
+// 5b) reduce 写法的护栏 —— 防止和 dsh-keep-motion 那类插件打架（不依赖它存在，纯自查写法）
+//
+// 背景（对方式的机制，值得记在这里）：dsh-keep-motion 运行时读 CSSOM，在
+// `@media (prefers-reduced-motion: reduce)` 块里找"关掉动画"的规则（animation:none /
+// animation-name:none / 时长归零），**只有当顶层存在选择器字符串完全相同的基础声明、
+// 且那条基础动画是 infinite 时**，才把动画属性复制成一条同选择器的覆盖规则追加到 head 末尾
+// （同特异性 + 源码顺序最后 ⇒ 赢）。
+//
+// 我们这边的写法是「选择器自带开关」：reduce 规则一律写成 html:not(.dshs-force-motion) …，
+// 顶层基础规则不带这个前缀，于是两边选择器永不相等，谁也碰不到谁。这条约束一旦被破坏
+// （比如把开关挪到 #dshs 的类上、让 reduce 选择器与顶层同名），启动页那十几个无限动画就会在
+// 「减少动态效果」下被它重新播起来 —— 静默失效、还很难查。所以在这里钉死。
+const REDUCE_OPENER = /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{/g
+/** 剥掉 CSS 注释：注释夹在规则前面会被块正则当选择器文本吞进去（护栏自己踩过一次）。 */
+const stripCssComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '')
+/** 取出 CSS 里所有 reduce 媒体块的**内容**（按花括号配对，允许块内再嵌套）。 */
+function reduceBlockBodies(css) {
+  const bodies = []
+  REDUCE_OPENER.lastIndex = 0
+  let opened
+  while ((opened = REDUCE_OPENER.exec(css)) !== null) {
+    let depth = 1
+    let i = REDUCE_OPENER.lastIndex
+    for (; i < css.length && depth > 0; i++) {
+      if (css[i] === '{') depth++
+      else if (css[i] === '}') depth--
+    }
+    bodies.push(css.slice(REDUCE_OPENER.lastIndex, i - 1))
+    REDUCE_OPENER.lastIndex = i
+  }
+  return bodies
+}
+/** 逗号切分选择器（忽略括号里的逗号，:not(.x) 之类不会被切断）。 */
+const splitSelectorList = (text) => text.split(/,(?![^(]*\))/).map((one) => one.trim()).filter((one) => one !== '')
+/** 该声明块是否"把动画关掉了"——与 keep-motion 的三种判据保持一致。 */
+function killsAnimation(body) {
+  const decls = {}
+  for (const decl of body.matchAll(/([a-zA-Z-]+)\s*:\s*([^;]+)/g)) decls[decl[1].toLowerCase()] = decl[2].trim()
+  if ((decls['animation'] || '').toLowerCase() === 'none') return true
+  if ((decls['animation-name'] || '').toLowerCase() === 'none') return true
+  const durations = (decls['animation-duration'] || '').split(',').map((one) => one.trim().toLowerCase()).filter((one) => one !== '')
+  return durations.length > 0 && durations.every((one) => /^([0-9]*\.?[0-9]+)(m?s)$/.test(one) && parseFloat(one) <= 0.01)
+}
+
+let reduceKilledSelectors = 0
+for (const [name, rawCss] of [['boot.css', splashCss], ['hero.css', heroCss]]) {
+  const css = stripCssComments(rawCss)
+  const bodies = reduceBlockBodies(css)
+  assert.ok(bodies.length > 0, `${name} 要有 @media (prefers-reduced-motion: reduce) 块（尊重系统的"减少动态效果"）`)
+  // 顶层选择器集合：把 reduce 块的内容挖掉再扫，剩下的就是基础声明
+  const withoutReduce = bodies.reduce((text, body) => text.replace(body, ''), css)
+  const topSelectors = new Set()
+  for (const rule of withoutReduce.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+    const selector = rule[1].trim()
+    if (selector.startsWith('@') || /^(?:\d|from$|to$)/.test(selector)) continue
+    for (const one of splitSelectorList(selector)) topSelectors.add(one)
+  }
+  for (const body of bodies) {
+    for (const rule of body.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+      if (!killsAnimation(rule[2])) continue
+      for (const one of splitSelectorList(rule[1])) {
+        reduceKilledSelectors += 1
+        assert.ok(one.startsWith('html:not(.dshs-force-motion)'),
+          `${name} 里关掉动画的 reduce 选择器必须自带开关前缀（html:not(.dshs-force-motion)），否则「减少动态效果」下会被 dsh-keep-motion 一类插件重新放行：${one}`)
+        assert.ok(!topSelectors.has(one),
+          `${name} 的 reduce 选择器不能在顶层有同名基础声明（那个被判据会据此把无限动画放行）：${one}`)
+      }
+    }
+  }
+}
+assert.ok(reduceKilledSelectors >= 10,
+  `reduce 块里"关掉动画"的选择器应有十来个（实测 17），只数到 ${reduceKilledSelectors} —— 说明上面的解析失效了，护栏等于没上`)
 
 // 4) 图片槽位：上传 → 生效 → 恢复默认，全程只碰临时目录
 const png = Buffer.concat([
@@ -514,6 +606,24 @@ if (existsSync(distIndex)) {
   assert.ok(appScript === -1 || out.indexOf('dshs-css') < appScript, '必须早于主界面脚本，才能抢在首帧前藏住 #root')
   assert.ok(wallCss.includes('--dsw-alias-bg-base'), '壁纸样式要改外壳底色变量')
   assert.ok(wallCss.includes('--dsw-specific-sidebar-fill'), '壁纸样式要改侧栏底色变量')
+  // 首帧探针的位置：必须在**第一张外链样式之前**（内联脚本只等它前面的样式表，排后面就会被卡到
+  // 首帧之后 —— 那时外壳 CSS 的 `var(--dsw-alias-bg-base,#fff)` 会先回退成白色，就是暗色下的白闪），
+  // 又必须在**主题内联样式之后**（否则读不到它写的 color-scheme）。
+  const probeAt = out.indexOf('dataset.dshsDark')
+  assert.ok(probeAt !== -1, '必须注入首帧探针（写 html[data-dshs-dark]）')
+  const firstSheetAt = out.search(/<link\b[^>]*\brel\s*=\s*["']?stylesheet/i)
+  assert.ok(firstSheetAt !== -1, '外壳应当有外链样式')
+  assert.ok(probeAt < firstSheetAt, '探针要排在外链样式之前，否则会被它挡到首帧之后（白闪）')
+  // 主题的内联样式在真实渲染里由 renderIndexInjections 插在 head 最前面（taps 吃的是 dist 原文，
+  // 这里只能验"探针在注入块之后"这个下界）
+  assert.ok(probeAt > out.indexOf('dshs-hero-css'), '探针要排在注入的样式之后，别插到它们中间')
+  // color-scheme 只是预判；真正的主题标记由 body 上的 data-ds-dark-theme 给出。
+  // 同步器必须是 body 的第一个节点，MutationObserver 才能在浏览器绘制前吃到主题脚本的改动。
+  const bodyAt = out.search(/<body(?:\s[^>]*)?>/i)
+  const bodySyncAt = out.indexOf('new MutationObserver(sync)', bodyAt)
+  assert.ok(bodyAt !== -1 && bodySyncAt > bodyAt, '必须在 body 开头注入真实主题同步器')
+  assert.ok(bodySyncAt < out.indexOf('<div id="root"'), '主题同步器必须早于 #root，不能等主界面渲染后才纠正')
+  assert.ok(out.slice(bodyAt, bodySyncAt).length < 240, '主题同步器必须紧贴 body 开标签，避免中间出现可绘制内容')
   assert.equal(taps[0](out), out, '重复注入必须是幂等的')
   console.log(`✓ 真实 index.html 注入通过（${shell.length} → ${out.length} 字节）`)
 } else {
